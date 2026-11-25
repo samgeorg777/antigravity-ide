@@ -96,7 +96,6 @@ fun TerminalPane(
                 terminalViewRef?.onScreenUpdated()
             }
 
-            override fun setTerminalShellPid(session: TerminalSession, pid: Int) {}
             override fun getTerminalCursorStyle(): Int = 0
             override fun logError(tag: String?, message: String?) {}
             override fun logWarn(tag: String?, message: String?) {}
