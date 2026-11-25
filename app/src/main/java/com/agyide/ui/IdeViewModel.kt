@@ -161,6 +161,7 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
 
     private var activeTerminalClient: TerminalSessionClient? = null
     private var terminalScreenCallback: (() -> Unit)? = null
+    private var pendingTerminalCommand: String? = null
 
     init {
         startBootstrap()
@@ -1015,10 +1016,15 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     fun ensureInitialTerminalSession(client: TerminalSessionClient, onUpdate: () -> Unit) {
         activeTerminalClient = client
         terminalScreenCallback = onUpdate
+        val queued = pendingTerminalCommand
+        pendingTerminalCommand = null
         if (terminalTabs.isEmpty() && _uiState.value.isReady) {
-            createTerminalTab("Bash")
+            createTerminalTab(if (queued != null) "AI" else "Bash", initialCommand = queued)
         } else {
             terminalTabs.forEach { it.session.updateTerminalSessionClient(client) }
+            if (queued != null) {
+                sendCommandToTerminal(queued)
+            }
         }
     }
 
@@ -1070,6 +1076,10 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendCommandToTerminal(command: String) {
+        if (activeTerminalClient == null) {
+            pendingTerminalCommand = command
+            return
+        }
         val current = terminalTabs.getOrNull(_activeTerminalIndex.value)
         if (current != null) {
             current.session.write("$command\n")

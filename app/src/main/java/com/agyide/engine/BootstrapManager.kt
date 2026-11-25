@@ -5,13 +5,12 @@ import android.os.Environment
 import android.system.Os
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import java.io.BufferedInputStream
-import java.io.BufferedReader
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.zip.ZipInputStream
@@ -29,34 +28,36 @@ object BootstrapManager {
     private const val AGY_TARBALL_URL =
         "https://github.com/wallentx/antigravity-cli-termux/releases/latest/download/antigravity-termux-standalone.tar.gz"
 
-    fun ensureReady(context: Context): Flow<BootstrapProgress> = flow {
+    fun ensureReady(context: Context): Flow<BootstrapProgress> = channelFlow {
         try {
-            val home = RuntimeEnv.homeDir(context).apply { mkdirs() }
+            RuntimeEnv.homeDir(context).apply { mkdirs() }
             val projects = RuntimeEnv.projectsDir(context).apply { mkdirs() }
             RuntimeEnv.uploadsDir(context).apply { mkdirs() }
 
             if (!RuntimeEnv.isBootstrapInstalled(context)) {
-                emit(BootstrapProgress("Extracting Linux Rootfs", "Unpacking ARM64 toolchain & glibc...", 0.08f))
+                send(BootstrapProgress("Extracting Linux Rootfs", "Unpacking ARM64 toolchain & glibc...", 0.06f))
                 extractBootstrapFromAssets(context) { frac, msg ->
-                    // Progress callbacks captured in next milestone
+                    trySend(BootstrapProgress("Extracting Linux Rootfs", msg, frac))
                 }
-                emit(BootstrapProgress("Configuring Environment", "Linking storage, DNS & permissions...", 0.55f))
+                send(BootstrapProgress("Configuring Environment", "Linking storage, DNS & permissions...", 0.56f))
                 configureRuntimeFiles(context)
             } else {
-                emit(BootstrapProgress("Runtime Ready", "Linux & glibc environment verified", 0.55f))
+                send(BootstrapProgress("Runtime Ready", "Linux & glibc environment verified", 0.56f))
                 configureRuntimeFiles(context)
             }
 
             ensureStarterProject(projects)
 
             if (!RuntimeEnv.isAgyInstalled(context)) {
-                emit(BootstrapProgress("Downloading Antigravity Engine", "Fetching agy AI binary from release...", 0.62f))
-                downloadAndInstallAgy(context)
+                send(BootstrapProgress("Downloading Antigravity Engine", "Connecting to GitHub release...", 0.60f))
+                downloadAndInstallAgy(context) { frac, title, detail ->
+                    trySend(BootstrapProgress(title, detail, frac))
+                }
             }
 
-            emit(BootstrapProgress("Ready", "Antigravity IDE environment initialized", 1.0f, done = true))
+            send(BootstrapProgress("Ready", "Antigravity IDE environment initialized", 1.0f, done = true))
         } catch (e: Exception) {
-            emit(
+            send(
                 BootstrapProgress(
                     stepTitle = "Setup Error",
                     detail = e.message ?: "Unknown bootstrap failure",
@@ -80,16 +81,28 @@ object BootstrapManager {
         stagingDir.mkdirs()
 
         val symlinks = mutableListOf<Pair<String, String>>()
-        val buffer = ByteArray(16 * 1024)
+        val buffer = ByteArray(32 * 1024)
+        var entryCount = 0
 
         context.assets.open("bootstrap-aarch64.zip").use { raw ->
-            ZipInputStream(BufferedInputStream(raw)).use { zis ->
+            ZipInputStream(BufferedInputStream(raw, 64 * 1024)).use { zis ->
                 var entry = zis.nextEntry
                 while (entry != null) {
                     val name = entry.name
+                    entryCount++
+                    if (entryCount % 150 == 0) {
+                        val frac = (0.06f + (entryCount.coerceAtMost(2500) / 2500f) * 0.42f)
+                        onStep(frac, "Extracting file $entryCount ($name)...")
+                    }
+
                     if (name == "SYMLINKS.txt") {
-                        val reader = BufferedReader(InputStreamReader(zis))
-                        reader.forEachLine { line ->
+                        val baos = ByteArrayOutputStream()
+                        while (true) {
+                            val count = zis.read(buffer)
+                            if (count <= 0) break
+                            baos.write(buffer, 0, count)
+                        }
+                        baos.toString(Charsets.UTF_8.name()).lineSequence().forEach { line ->
                             val idx = line.indexOf('←')
                             if (idx > 0 && idx < line.length - 1) {
                                 val target = line.substring(0, idx)
@@ -115,7 +128,7 @@ object BootstrapManager {
                                 name.startsWith("glibc/") ||
                                 name.startsWith("lib/apt/")
                             ) {
-                                runCatching { Os.chmod(outFile.absolutePath, 0b111_101_101) } // 0755
+                                runCatching { Os.chmod(outFile.absolutePath, 493) } // 0755
                             }
                         }
                     }
@@ -125,17 +138,18 @@ object BootstrapManager {
             }
         }
 
+        onStep(0.50f, "Creating ${symlinks.size} POSIX symlinks...")
         symlinks.forEach { (target, linkPath) ->
             val linkFile = File(linkPath)
             linkFile.parentFile?.mkdirs()
-            if (linkFile.exists()) linkFile.delete()
+            runCatching { Os.remove(linkPath) }
             runCatching { Os.symlink(target, linkPath) }
         }
 
         if (!stagingDir.renameTo(usrDir)) {
             throw IllegalStateException("Failed to move bootstrap staging directory to ${usrDir.absolutePath}")
         }
-        onStep(0.55f, "Extracted ${symlinks.size} symlinks")
+        onStep(0.55f, "Rootfs extracted ($entryCount entries)")
     }
 
     private fun configureRuntimeFiles(context: Context) {
@@ -151,7 +165,7 @@ object BootstrapManager {
 
         val loader = File(usr, "glibc/lib/ld-linux-aarch64.so.1")
         if (loader.exists()) {
-            runCatching { Os.chmod(loader.absolutePath, 0b111_101_101) }
+            runCatching { Os.chmod(loader.absolutePath, 493) }
         }
 
         File(home, ".termux").apply { mkdirs() }.also { termuxDir ->
@@ -198,7 +212,10 @@ object BootstrapManager {
         }
     }
 
-    private fun downloadAndInstallAgy(context: Context) {
+    private fun downloadAndInstallAgy(
+        context: Context,
+        onStep: (Float, String, String) -> Unit
+    ) {
         val usr = RuntimeEnv.usrDir(context)
         val tmp = RuntimeEnv.tmpDir(context).apply { mkdirs() }
         val tarFile = File(tmp, "antigravity.tar.gz")
@@ -211,7 +228,7 @@ object BootstrapManager {
             conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false
                 connectTimeout = 20_000
-                readTimeout = 60_000
+                readTimeout = 180_000
                 setRequestProperty("User-Agent", "AntigravityIDE-Android/1.0")
             }
             val code = conn.responseCode
@@ -228,19 +245,45 @@ object BootstrapManager {
             throw IllegalStateException("HTTP ${conn.responseCode} downloading Antigravity engine")
         }
 
+        val totalBytes = conn.contentLengthLong
+        var downloaded = 0L
+        val buf = ByteArray(32 * 1024)
+        var lastEmitMs = 0L
+
         conn.inputStream.use { input ->
             FileOutputStream(tarFile).use { output ->
-                input.copyTo(output, 16 * 1024)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n <= 0) break
+                    output.write(buf, 0, n)
+                    downloaded += n
+                    val now = System.currentTimeMillis()
+                    if (now - lastEmitMs > 250) {
+                        lastEmitMs = now
+                        val mbDone = downloaded / (1024f * 1024f)
+                        val detail = if (totalBytes > 0) {
+                            val mbTotal = totalBytes / (1024f * 1024f)
+                            String.format("Downloaded %.1f / %.1f MB", mbDone, mbTotal)
+                        } else {
+                            String.format("Downloaded %.1f MB", mbDone)
+                        }
+                        val frac = if (totalBytes > 0) {
+                            0.60f + (downloaded.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) * 0.28f
+                        } else 0.72f
+                        onStep(frac, "Downloading Antigravity Engine", detail)
+                    }
+                }
             }
         }
         conn.disconnect()
 
+        onStep(0.90f, "Installing Antigravity Engine", "Extracting agy & agy.va39 (~250 MB)...")
         val tarBin = File(usr, "bin/tar").absolutePath
         val binDir = File(usr, "bin").absolutePath
         val res = RuntimeEnv.runBinary(
             context = context,
             command = listOf(tarBin, "-xzf", tarFile.absolutePath, "-C", binDir, "agy", "agy.va39"),
-            timeoutSeconds = 60
+            timeoutSeconds = 180
         )
         tarFile.delete()
 
@@ -249,7 +292,7 @@ object BootstrapManager {
         }
 
         listOf(RuntimeEnv.agyFile(context), RuntimeEnv.agyPayloadFile(context)).forEach { f ->
-            if (f.exists()) runCatching { Os.chmod(f.absolutePath, 0b111_101_101) }
+            if (f.exists()) runCatching { Os.chmod(f.absolutePath, 493) }
         }
     }
 
