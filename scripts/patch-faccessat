@@ -1,0 +1,56 @@
+#!/data/data/com.agyide/files/usr/bin/python3
+# patch-faccessat: Converts Linux faccessat2 (439) -> faccessat (48) for Android seccomp
+import sys
+import os
+import glob
+
+def patch_binary(path):
+    if not os.path.isfile(path) or os.path.islink(path):
+        return 0
+    try:
+        with open(path, 'rb') as f:
+            if f.read(4) != b'\x7fELF':
+                return 0
+            f.seek(0)
+            data = bytearray(f.read())
+    except Exception:
+        return 0
+
+    count = 0
+    for i in range(0, len(data) - 4, 4):
+        if data[i:i+4] == b'\xe0\x36\x80\xd2':
+            data[i:i+4] = b'\x00\x06\x80\xd2'
+            count += 1
+        elif data[i:i+4] == b'\xe8\x36\x80\xd2':
+            data[i:i+4] = b'\x08\x06\x80\xd2'
+            count += 1
+
+    if count > 0:
+        with open(path, 'wb') as f:
+            f.write(data)
+        print(f"[✓] Patched {count} faccessat2 syscall(s) in: {path}")
+    return count
+
+def main():
+    if len(sys.argv) < 2:
+        prefix = os.environ.get("PREFIX", "/data/data/com.agyide/files/usr")
+        home = os.environ.get("HOME", "/data/data/com.agyide/files/home")
+        candidates = [
+            os.path.join(prefix, "bin", "gh"),
+            os.path.join(prefix, "bin", "git"),
+            *glob.glob(os.path.join(home, "go", "bin", "*")),
+            *glob.glob(os.path.join(home, "bin", "*")),
+        ]
+        for cand in candidates:
+            patch_binary(cand)
+        return
+    for target in sys.argv[1:]:
+        if os.path.isdir(target):
+            for root, _, files in os.walk(target):
+                for f in files:
+                    patch_binary(os.path.join(root, f))
+        else:
+            patch_binary(target)
+
+if __name__ == "__main__":
+    main()

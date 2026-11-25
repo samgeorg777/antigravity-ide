@@ -1,0 +1,81 @@
+{
+  "name": "Antigravity Cosmic",
+  "settings": [
+    {
+      "settings": {
+        "background": "#0B0F19",
+        "caret": "#00F0FF",
+        "foreground": "#E2E8F0",
+        "invisibles": "#1E293B",
+        "lineHighlight": "#131B2E",
+        "selection": "#263B66",
+        "guide": "#1E293B",
+        "highlightedDelimitersForeground": "#00F0FF"
+      }
+    },
+    {
+      "scope": ["meta.embedded", "source.groovy.embedded"],
+      "settings": { "foreground": "#E2E8F0" }
+    },
+    {
+      "name": "Comment",
+      "scope": "comment",
+      "settings": { "fontStyle": "italic", "foreground": "#64748B" }
+    },
+    {
+      "name": "String",
+      "scope": "string",
+      "settings": { "foreground": "#4ADE80" }
+    },
+    {
+      "name": "Number",
+      "scope": ["constant.numeric", "constant.language", "constant.character", "constant.other"],
+      "settings": { "foreground": "#FFD166" }
+    },
+    {
+      "name": "Keyword",
+      "scope": ["keyword", "storage", "entity.name.tag"],
+      "settings": { "foreground": "#00F0FF" }
+    },
+    {
+      "name": "Storage type",
+      "scope": ["storage.type", "support.type", "support.class"],
+      "settings": { "fontStyle": "italic", "foreground": "#C084FC" }
+    },
+    {
+      "name": "Class name",
+      "scope": ["entity.name.class", "entity.name.type", "entity.name.namespace", "entity.name.scope-resolution"],
+      "settings": { "foreground": "#38BDF8" }
+    },
+    {
+      "name": "Function name",
+      "scope": ["entity.name.function", "support.function"],
+      "settings": { "foreground": "#D8B4FE" }
+    },
+    {
+      "name": "Variable & Parameter",
+      "scope": ["variable.parameter", "entity.other.attribute-name"],
+      "settings": { "foreground": "#93C5FD" }
+    },
+    {
+      "name": "Operator",
+      "scope": "keyword.operator",
+      "settings": { "foreground": "#67E8F9" }
+    },
+    {
+      "name": "Invalid",
+      "scope": ["invalid", "invalid.deprecated"],
+      "settings": { "foreground": "#FF5370" }
+    },
+    {
+      "name": "Markup Headings",
+      "scope": ["markup.heading", "markup.heading.setext"],
+      "settings": { "fontStyle": "bold", "foreground": "#00F0FF" }
+    },
+    {
+      "name": "Markup Inline",
+      "scope": "markup.inline.raw",
+      "settings": { "foreground": "#C084FC" }
+    }
+  ]
+}

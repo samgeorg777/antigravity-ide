@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cosmic_bg">#0B0F19</color>
+    <color name="cosmic_surface">#111625</color>
+    <color name="cosmic_cyan">#00F0FF</color>
+    <color name="cosmic_purple">#7928CA</color>
+</resources>

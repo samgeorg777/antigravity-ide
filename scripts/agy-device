@@ -1,0 +1,138 @@
+#!/data/data/com.agyide/files/usr/bin/bash
+# agy-device: Autonomous Android Device Controller for Antigravity IDE
+
+ensure_adb() {
+    if ! command -v adb >/dev/null 2>&1; then
+        echo "[*] Installing android-tools (adb)..."
+        pkg install -y android-tools || apt-get install -y android-tools
+    fi
+}
+
+check_connection() {
+    ensure_adb
+    devices=$(adb devices | grep -v "List of devices" | grep "device$" | awk '{print $1}')
+    [ -n "$devices" ]
+}
+
+require_connection() {
+    if ! check_connection; then
+        echo "[✗] No active ADB device connected. Run: agy-device setup"
+        exit 1
+    fi
+}
+
+case "${1:-help}" in
+    status)
+        ensure_adb
+        devices=$(adb devices | grep -v "List of devices" | grep -v "^$" || true)
+        if [ -z "$devices" ]; then
+            echo "Status: Disconnected"
+            adb mdns services 2>/dev/null || true
+        else
+            echo "Status: Connected"
+            echo "$devices"
+            echo "Device: $(adb shell getprop ro.product.model 2>/dev/null) (Android $(adb shell getprop ro.build.version.release 2>/dev/null))"
+            echo "Resolution: $(adb shell wm size 2>/dev/null | awk '{print $3}')"
+            echo "Battery: $(adb shell dumpsys battery 2>/dev/null | grep 'level:' | awk '{print $2}')%"
+        fi
+        ;;
+    setup)
+        ensure_adb
+        am start -a android.settings.APPLICATION_DEVELOPMENT_SETTINGS >/dev/null 2>&1 || true
+        echo "Enable Wireless Debugging -> Pair device with pairing code, then run:"
+        echo "  agy-device pair <port> <code>"
+        echo "  agy-device connect <port>"
+        ;;
+    pair)
+        ensure_adb
+        adb pair "localhost:$2" "$3"
+        ;;
+    connect)
+        ensure_adb
+        adb connect "localhost:${2:-5555}"
+        adb devices
+        ;;
+    discover)
+        ensure_adb
+        adb mdns services 2>/dev/null || true
+        ;;
+    screenshot)
+        require_connection
+        mkdir -p "$HOME/uploads"
+        target="${2:-$HOME/uploads/screenshot.png}"
+        adb exec-out screencap -p > "$target"
+        echo "Saved: $target"
+        ;;
+    tap)
+        require_connection
+        adb shell input tap "$2" "$3"
+        ;;
+    swipe)
+        require_connection
+        adb shell input swipe "$2" "$3" "$4" "$5" "${6:-300}"
+        ;;
+    text)
+        require_connection
+        shift
+        python3 -c '
+import sys, subprocess
+raw = " ".join(sys.argv[1:])
+escaped = []
+for ch in raw:
+    if ch == " ":
+        escaped.append("%s")
+    elif ch in "\\\"'\''`$&;|<>(){}[]!*?~#":
+        escaped.append("\\" + ch)
+    else:
+        escaped.append(ch)
+subprocess.run(["adb", "shell", "input", "text", "".join(escaped)], check=True)
+' "$@"
+        ;;
+    key)
+        require_connection
+        case "$2" in
+            HOME|home) code="KEYCODE_HOME" ;;
+            BACK|back) code="KEYCODE_BACK" ;;
+            ENTER|enter) code="KEYCODE_ENTER" ;;
+            POWER|power) code="KEYCODE_POWER" ;;
+            APP_SWITCH|recents) code="KEYCODE_APP_SWITCH" ;;
+            *) code="${2:-KEYCODE_HOME}" ;;
+        esac
+        adb shell input keyevent "$code"
+        ;;
+    launch)
+        require_connection
+        adb shell monkey -p "$2" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || adb shell am start -n "$2" >/dev/null 2>&1
+        ;;
+    ui-dump|uidump)
+        require_connection
+        adb shell uiautomator dump /data/local/tmp/ui_dump.xml >/dev/null 2>&1
+        tmp_xml=$(mktemp)
+        adb exec-out cat /data/local/tmp/ui_dump.xml > "$tmp_xml"
+        python3 - "$tmp_xml" << 'PYEOF'
+import xml.etree.ElementTree as ET, sys, re
+root = ET.parse(sys.argv[1]).getroot()
+for node in root.iter('node'):
+    text = node.get('text', '') or node.get('content-desc', '')
+    bounds = node.get('bounds', '')
+    clickable = node.get('clickable', 'false')
+    cls = node.get('class', '').split('.')[-1]
+    if bounds and (text or clickable == 'true'):
+        m = re.findall(r'\[(\d+),(\d+)\]', bounds)
+        if len(m) == 2:
+            cx = (int(m[0][0]) + int(m[1][0])) // 2
+            cy = (int(m[0][1]) + int(m[1][1])) // 2
+            label = f'"{text}"' if text else f'[{cls}]'
+            print(f'  • {label:32} -> tap {cx} {cy}')
+PYEOF
+        rm -f "$tmp_xml"
+        ;;
+    shell)
+        require_connection
+        shift
+        adb shell "$@"
+        ;;
+    *)
+        echo "Usage: agy-device {status|setup|pair <port> <code>|connect [port]|discover|screenshot [path]|tap <x> <y>|swipe <x1> <y1> <x2> <y2>|text <str>|key <k>|launch <pkg>|ui-dump|shell <cmd>}"
+        ;;
+esac

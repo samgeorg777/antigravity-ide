@@ -1,0 +1,4 @@
+-keep class com.termux.** { *; }
+-keep class io.github.rosemoe.sora.** { *; }
+-keep class com.agyide.engine.** { *; }
+-dontwarn org.eclipse.tm4e.**

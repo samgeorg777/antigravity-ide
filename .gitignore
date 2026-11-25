@@ -1,0 +1,19 @@
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+*.jks
+*.keystore
+output/
+__pycache__/
+*.pyc
+# Built by CI into app/src/main/assets/
+app/src/main/assets/bootstrap-aarch64.zip

@@ -1,0 +1,79 @@
+name: Build Antigravity IDE Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      prebundle:
+        description: "Pre-bundle agy AI engine inside APK (~250MB offline build vs ~45MB fast build)"
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    name: Build Antigravity IDE APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Generate Launcher Icons & Build ARM64 Bootstrap
+        run: |
+          python3 -m pip install --upgrade pillow
+          chmod +x scripts/*.sh scripts/*.py scripts/agy-device scripts/patch-faccessat 2>/dev/null || true
+          python3 scripts/generate_icons.py .
+          PREBUNDLE_FLAG="${{ github.event.inputs.prebundle || 'false' }}"
+          ./scripts/build-bootstrap.sh "$PREBUNDLE_FLAG"
+
+      - name: Build Debug APK
+        run: |
+          gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Prepare Output APK
+        run: |
+          mkdir -p output
+          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          if [ -f "$APK_PATH" ]; then
+            cp "$APK_PATH" output/Antigravity-IDE.apk
+            ls -lh output/Antigravity-IDE.apk
+          else
+            echo "[-] Error: APK not found!"
+            exit 1
+          fi
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Antigravity-IDE-Android
+          path: output/Antigravity-IDE.apk
+          retention-days: 14
+
+      - name: Release APK
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && format('Antigravity IDE {0}', github.ref_name) || 'Antigravity IDE (Latest Build)' }}
+          files: output/Antigravity-IDE.apk
+          prerelease: false
+          generate_release_notes: true
