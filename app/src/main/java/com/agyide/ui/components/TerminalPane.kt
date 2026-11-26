@@ -58,6 +58,7 @@ fun TerminalPane(
     var altActive by remember { mutableStateOf(false) }
     var terminalFontSp by remember { mutableFloatStateOf(13f) }
     var terminalViewRef by remember { mutableStateOf<TerminalView?>(null) }
+    var extractedUrls by remember { mutableStateOf<List<String>?>(null) }
 
     val sessionClient = remember(context) {
         object : TerminalSessionClient {
@@ -110,9 +111,12 @@ fun TerminalPane(
     val viewClient = remember(context) {
         object : TerminalViewClient {
             override fun onScale(scale: Float): Float {
-                val next = (terminalFontSp * scale).coerceIn(9f, 24f)
-                terminalFontSp = next
-                return 1.0f
+                if (scale < 0.9f || scale > 1.1f) {
+                    val delta = if (scale > 1.0f) 1f else -1f
+                    terminalFontSp = (terminalFontSp + delta).coerceIn(9f, 24f)
+                    return 1.0f
+                }
+                return scale
             }
 
             override fun onSingleTapUp(e: MotionEvent) {
@@ -259,6 +263,21 @@ fun TerminalPane(
                 Icon(Icons.Default.Add, contentDescription = "New Shell", tint = CosmicColors.Cyan, modifier = Modifier.size(18.dp))
             }
             IconButton(
+                onClick = {
+                    val transcript = activeSession?.emulator?.screen?.transcriptTextWithFullLinesJoined ?: ""
+                    val urls = Regex("https?://[^\\s\"'<>()\\]]+")
+                        .findAll(transcript)
+                        .map { it.value.trimEnd('.', ',', ';', ':') }
+                        .distinct()
+                        .toList()
+                        .reversed()
+                    extractedUrls = urls
+                },
+                modifier = Modifier.size(30.dp)
+            ) {
+                Icon(Icons.Default.OpenInBrowser, contentDescription = "Open Terminal Links", tint = CosmicColors.Cyan, modifier = Modifier.size(16.dp))
+            }
+            IconButton(
                 onClick = { sessionClient.onPasteTextFromClipboard(activeSession) },
                 modifier = Modifier.size(30.dp)
             ) {
@@ -275,8 +294,9 @@ fun TerminalPane(
             TypedValue.COMPLEX_UNIT_SP,
             terminalFontSp,
             context.resources.displayMetrics
-        ).toInt()
+        ).toInt().coerceAtLeast(12)
 
+        var lastTextSizePx by remember { mutableIntStateOf(textSizePx) }
         var boundSessionHandle by remember { mutableStateOf<String?>(null) }
 
         AndroidView(
@@ -286,17 +306,21 @@ fun TerminalPane(
                 .background(CosmicColors.Background),
             factory = { ctx ->
                 TerminalView(ctx, null).apply {
-                    setTypeface(monoFont)
-                    setTextSize(textSizePx)
-                    setBackgroundColor(0xFF0B0F19.toInt())
                     setTerminalViewClient(viewClient)
+                    // setTextSize MUST precede setTypeface because setTextSize initializes mRenderer!
+                    setTextSize(textSizePx)
+                    setTypeface(monoFont)
+                    setBackgroundColor(0xFF0B0F19.toInt())
                     isFocusable = true
                     isFocusableInTouchMode = true
                     terminalViewRef = this
                 }
             },
             update = { tv ->
-                tv.setTextSize(textSizePx)
+                if (lastTextSizePx != textSizePx) {
+                    lastTextSizePx = textSizePx
+                    tv.setTextSize(textSizePx)
+                }
                 if (activeSession != null && boundSessionHandle != activeSession.mHandle) {
                     boundSessionHandle = activeSession.mHandle
                     tv.attachSession(activeSession)
@@ -330,6 +354,51 @@ fun TerminalPane(
             ExtraKeyChip("agy", false) { activeSession?.write("agy\n") }
             ExtraKeyChip("git", false) { activeSession?.write("git status\n") }
         }
+    }
+
+    extractedUrls?.let { urls ->
+        AlertDialog(
+            onDismissRequest = { extractedUrls = null },
+            containerColor = CosmicColors.Surface,
+            title = { Text("Terminal URLs", color = CosmicColors.Cyan, fontWeight = FontWeight.Bold) },
+            text = {
+                if (urls.isEmpty()) {
+                    Text("No URLs detected in terminal output yet.", color = CosmicColors.TextSecondary, fontSize = 13.sp)
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        urls.take(10).forEach { url ->
+                            Text(
+                                text = url,
+                                color = CosmicColors.Cyan,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(CosmicColors.SurfaceElevated)
+                                    .border(1.dp, CosmicColors.SurfaceBorder, RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        extractedUrls = null
+                                        if (url.contains("127.0.0.1") || url.contains("localhost")) {
+                                            onOpenUrlInPreview(url)
+                                        } else {
+                                            runCatching {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                            }
+                                        }
+                                    }
+                                    .padding(10.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { extractedUrls = null }) {
+                    Text("Close", color = CosmicColors.TextSecondary)
+                }
+            }
+        )
     }
 }
 

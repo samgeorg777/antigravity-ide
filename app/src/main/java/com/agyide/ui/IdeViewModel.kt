@@ -214,6 +214,8 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(activePane = pane) }
         if (pane == IdePane.EXPLORER) {
             refreshGit()
+        } else if (pane == IdePane.CHAT) {
+            refreshAuthStatus()
         }
     }
 
@@ -245,8 +247,13 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshAuthStatus() {
+        val wasAuthed = _uiState.value.hasAuth
         val hasAuth = RuntimeEnv.hasAuthCredentials(getApplication(), _uiState.value.apiKey)
         _uiState.update { it.copy(hasAuth = hasAuth) }
+        if (!wasAuthed && hasAuth) {
+            refreshModels()
+            refreshSavedConversations()
+        }
     }
 
     fun launchInteractiveLoginInTerminal() {
@@ -1051,8 +1058,15 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
 
         if (!initialCommand.isNullOrBlank()) {
             viewModelScope.launch {
-                kotlinx.coroutines.delay(450)
-                session.write("$initialCommand\n")
+                var waited = 0
+                while (!session.isRunning && waited < 5000) {
+                    kotlinx.coroutines.delay(50)
+                    waited += 50
+                }
+                if (session.isRunning) {
+                    kotlinx.coroutines.delay(250)
+                    session.write("$initialCommand\n")
+                }
             }
         }
     }

@@ -38,6 +38,13 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: IdeViewModel by viewModels()
 
+    override fun onResume() {
+        super.onResume()
+        if (viewModel.uiState.value.isReady) {
+            viewModel.refreshAuthStatus()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
