@@ -4,6 +4,10 @@
 export GODEBUG="netdns=cgo"
 export GIT_TERMINAL_PROMPT=0
 export SSL_CERT_FILE="${SSL_CERT_FILE:-$PREFIX/etc/tls/cert.pem}"
+export TERMUX_VERSION="0.118.0"
+export TERMUX_APP__PACKAGE_NAME="com.agyide"
+export TERMUX__USER_ID="0"
+export BROWSER="$PREFIX/bin/xdg-open"
 
 # Ensure DNS & localhost configs exist without overwriting user changes on every launch
 if [ ! -f "$PREFIX/glibc/etc/hosts" ]; then

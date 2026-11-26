@@ -261,6 +261,7 @@ private fun TabletDesktopIdeLayout(
                         if (bottomTab == 0) {
                             TerminalPane(
                                 viewModel = viewModel,
+                                hasAuth = uiState.hasAuth,
                                 onOpenUrlInPreview = { url ->
                                     viewModel.setPreviewUrl(url)
                                     bottomTab = 1
@@ -436,6 +437,7 @@ private fun PhoneCompactIdeLayout(
                     IdePane.EXPLORER -> RenderExplorerPane(uiState, viewModel)
                     IdePane.TERMINAL -> TerminalPane(
                         viewModel = viewModel,
+                        hasAuth = uiState.hasAuth,
                         onOpenUrlInPreview = { url ->
                             viewModel.setPreviewUrl(url)
                             viewModel.selectPane(IdePane.PREVIEW)

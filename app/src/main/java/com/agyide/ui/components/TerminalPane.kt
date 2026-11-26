@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.agyide.engine.RuntimeEnv
 import com.agyide.ui.IdeViewModel
 import com.agyide.ui.theme.CosmicColors
 import com.termux.terminal.TerminalEmulator
@@ -43,10 +44,13 @@ import com.termux.terminal.TerminalSessionClient
 import com.termux.terminal.TextStyle
 import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
+import kotlinx.coroutines.delay
+import java.io.File
 
 @Composable
 fun TerminalPane(
     viewModel: IdeViewModel,
+    hasAuth: Boolean,
     onOpenUrlInPreview: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -125,7 +129,7 @@ fun TerminalPane(
                 if (emulator != null) {
                     val colRow = tv.getColumnAndRow(e, true)
                     val word = emulator.screen.getWordAtLocation(colRow[0], colRow[1])
-                    val urlMatch = Regex("https?://[^\\s\"'<>()\\]]+").find(word ?: "")
+                    val urlMatch = Regex("https?://[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+").find(word ?: "")
                     if (urlMatch != null) {
                         var url = urlMatch.value.trimEnd('.', ',', ';', ':')
                         if (url.contains("127.0.0.1") || url.contains("localhost")) {
@@ -196,6 +200,23 @@ fun TerminalPane(
         viewModel.ensureInitialTerminalSession(sessionClient) {
             terminalViewRef?.onScreenUpdated()
         }
+        val urlTriggerFile = File(RuntimeEnv.homeDir(context), ".agyide_open_url")
+        while (true) {
+            if (urlTriggerFile.exists()) {
+                val url = runCatching { urlTriggerFile.readText().trim() }.getOrNull()
+                runCatching { urlTriggerFile.delete() }
+                if (!url.isNullOrBlank() && (url.startsWith("http://") || url.startsWith("https://"))) {
+                    if (url.contains("127.0.0.1:") && !url.contains("accounts.google.com") && !url.contains("oauth")) {
+                        onOpenUrlInPreview(url)
+                    } else {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }
+                    }
+                }
+            }
+            delay(400)
+        }
     }
 
     val tabs = remember(tabVersion) { viewModel.terminalTabs.toList() }
@@ -265,7 +286,7 @@ fun TerminalPane(
             IconButton(
                 onClick = {
                     val transcript = activeSession?.emulator?.screen?.transcriptTextWithFullLinesJoined ?: ""
-                    val urls = Regex("https?://[^\\s\"'<>()\\]]+")
+                    val urls = Regex("https?://[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+")
                         .findAll(transcript)
                         .map { it.value.trimEnd('.', ',', ';', ':') }
                         .distinct()
@@ -282,6 +303,22 @@ fun TerminalPane(
                 modifier = Modifier.size(30.dp)
             ) {
                 Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = CosmicColors.TextSecondary, modifier = Modifier.size(16.dp))
+            }
+        }
+
+        if (!hasAuth) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(CosmicColors.SurfaceElevated)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Sign in with Google in agy below (or tap the link icon above if browser doesn't open), then return to the Agent tab.",
+                    color = CosmicColors.CyanMuted,
+                    fontSize = 11.sp
+                )
             }
         }
 

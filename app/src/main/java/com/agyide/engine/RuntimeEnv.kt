@@ -58,6 +58,10 @@ object RuntimeEnv {
             "GIT_TERMINAL_PROMPT" to "0",
             "SSL_CERT_FILE" to "$usr/etc/tls/cert.pem",
             "CURL_CA_BUNDLE" to "$usr/etc/tls/cert.pem",
+            "TERMUX_VERSION" to "0.118.0",
+            "TERMUX_APP__PACKAGE_NAME" to PACKAGE_ID,
+            "TERMUX__USER_ID" to "0",
+            "BROWSER" to "$usr/bin/xdg-open",
             "AGY_AUTO_UPDATE" to "0"
         )
         if (!apiKey.isNullOrBlank()) {

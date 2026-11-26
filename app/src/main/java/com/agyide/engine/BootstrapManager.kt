@@ -168,6 +168,48 @@ object BootstrapManager {
             runCatching { Os.chmod(loader.absolutePath, 493) }
         }
 
+        val amApk = File(usr, "libexec/termux-am/am.apk")
+        if (amApk.exists()) {
+            runCatching { Os.chmod(amApk.absolutePath, 256) } // 0400 required on Android 14+
+        }
+
+        // Route xdg-open HTTP(S) URLs directly to Android browser + IDE foreground watcher
+        val binDir = File(usr, "bin").apply { mkdirs() }
+        val xdgOpen = File(binDir, "xdg-open")
+        runCatching { Os.remove(xdgOpen.absolutePath) }
+        xdgOpen.writeText(
+            """
+            #!/data/data/com.agyide/files/usr/bin/sh
+            URL="${'$'}1"
+            case "${'$'}URL" in
+              http://*|https://*)
+                printf '%s\n' "${'$'}URL" > "${'$'}HOME/.agyide_open_url"
+                am start --user 0 -a android.intent.action.VIEW -d "${'$'}URL" >/dev/null 2>&1 || true
+                ;;
+              *)
+                if [ -x "${'$'}PREFIX/bin/termux-open" ]; then
+                  exec "${'$'}PREFIX/bin/termux-open" "${'$'}@"
+                fi
+                ;;
+            esac
+            """.trimIndent() + "\n"
+        )
+        runCatching { Os.chmod(xdgOpen.absolutePath, 493) }
+
+        val termuxOpenUrl = File(binDir, "termux-open-url")
+        runCatching { Os.remove(termuxOpenUrl.absolutePath) }
+        termuxOpenUrl.writeText(
+            """
+            #!/data/data/com.agyide/files/usr/bin/sh
+            URL="${'$'}1"
+            if [ -n "${'$'}URL" ]; then
+              printf '%s\n' "${'$'}URL" > "${'$'}HOME/.agyide_open_url"
+              am start --user 0 -a android.intent.action.VIEW -d "${'$'}@" >/dev/null 2>&1 || true
+            fi
+            """.trimIndent() + "\n"
+        )
+        runCatching { Os.chmod(termuxOpenUrl.absolutePath, 493) }
+
         File(home, ".termux").apply { mkdirs() }.also { termuxDir ->
             val colors = File(termuxDir, "colors.properties")
             if (!colors.exists()) {
